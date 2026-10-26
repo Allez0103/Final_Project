@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PA2 settings v1",
+  "type": "object",
+  "required": ["schema_version", "version", "import_timeout_sec", "generation_timeout_sec", "video_timeout_sec", "max_directions", "support_enabled", "video_width", "video_height", "video_fps"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "version": {"type": "string"},
+    "import_timeout_sec": {"type": "integer", "minimum": 1800, "maximum": 86400},
+    "generation_timeout_sec": {"type": "integer", "minimum": 1800, "maximum": 86400},
+    "video_timeout_sec": {"type": "integer", "minimum": 1800, "maximum": 86400},
+    "native_operation_timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600},
+    "candidate_timeout_sec": {"type": "integer", "minimum": 1, "maximum": 1800},
+    "max_directions": {"type": "integer", "minimum": 6, "maximum": 64},
+    "direction_merge_angle_deg": {"type": "number", "minimum": 0.1, "maximum": 15},
+    "backtrack_depth": {"type": "integer", "minimum": 0, "maximum": 20},
+    "backtrack_count": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "support_enabled": {"type": "boolean"},
+    "bolt_initial_overlap_enabled": {"type": "boolean", "default": true},
+    "initial_overlap_region_enabled": {"type": "boolean", "default": true},
+    "allow_support_unknown_draft": {"type": "boolean", "default": true},
+    "camera_mode": {"enum": ["smooth", "stepped_45"]},
+    "video_width": {"type": "integer", "minimum": 1},
+    "video_height": {"type": "integer", "minimum": 1},
+    "video_fps": {"type": "integer", "minimum": 1}
+  }
+}
+

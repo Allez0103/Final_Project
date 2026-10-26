@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp/
+.pytest-v19*/
+.coverage
+build/
+dist/
+releases/
+PA2.exe
+_internal/
+*.spec.bak
+runtime-data/
+tmp/
+*.log
+

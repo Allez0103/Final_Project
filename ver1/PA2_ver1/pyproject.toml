@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=84", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pa2"
+version = "0.1.0"
+description = "PA² (Pilot Assembly Assistant) Windows desktop application"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "PySide6-Essentials==6.12.0",
+  "PySide6-Addons==6.12.0",
+  "vtk==9.6.2",
+  "cadquery-ocp==8.0.1.1.0",
+  "SQLAlchemy==2.0.55",
+  "alembic==1.20.0",
+  "PyMySQL==1.2.3",
+  "lightgbm==4.7.0",
+  "scikit-learn==1.9.1",
+  "numpy==2.5.4",
+  "Pillow==12.3.0",
+  "imageio-ffmpeg==0.6.0",
+  "platformdirs==4.13.3",
+  "psutil==7.2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "PyInstaller==6.22.3"]
+
+[project.scripts]
+pa2 = "pa2.__main__:main"
+pa2-cli = "pa2.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --basetemp=.pytest-tmp"
+markers = ["integration: tests that read external representative files"]
+
