@@ -238,6 +238,13 @@ class PlanRecord(Base, TimestampMixin):
     preview_version: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class PlanPresentationRecord(Base):
+    """Additive table: legacy plans/steps are not rewritten on database open."""
+    __tablename__ = "plan_presentations"
+    plan_id: Mapped[str] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"), primary_key=True)
+    camera_rolls_json: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
+
+
 class PlanStepRecord(Base):
     __tablename__ = "plan_steps"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

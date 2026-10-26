@@ -115,6 +115,8 @@ class ImportService:
                 {"code": "AMBIGUOUS_MATCHES", "items": grouping.ambiguous},
                 {"code": "GROUPING_FALLBACK_MATCHES", "items": grouping.fallback_matches},
                 {"code": "GROUPING_ROTATION_MATCHES", "items": grouping.rotation_matches},
+                {"code": "GROUPING_ANCHOR_MATCHES", "items": grouping.anchor_matches},
+                {"code": "GROUPING_RELAXED_MATCHES", "items": grouping.relaxed_matches},
                 {"code": "NON_SOLID_COUNT", "count": assembly_scene.non_solid_count},
                 {"code": "CONTACT_GRAPH", "version": ContactService.VERSION, "gap_mm": settings.contact_gap_mm,
                  "complete": contact_result.complete, "candidate_count": contact_result.candidate_count,

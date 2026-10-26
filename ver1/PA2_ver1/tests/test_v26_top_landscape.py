@@ -40,7 +40,7 @@ def test_timeline_initial_top_transition_and_no_camera_snap():
         for i,(g,mode) in enumerate([('a','TOP'),('b','FRONT'),('c','TOP')],1)],PlanningStatus.COMPLETE)
     before=copy.deepcopy(plan.to_dict());timeline=build_timeline(plan,settings,bounds)
     assert timeline.top_view_roll_deg==90
-    assert timeline.segments[0].camera_end==0
+    assert timeline.segments[0].camera_end==timeline.base_end==settings.highlight_sec
     assert scene_at(plan,0,settings,timeline).camera.view_up==pytest.approx((-1,0,0))
     assert scene_at(plan,timeline.duration,settings,model_bounds=bounds).camera.view_up==pytest.approx((-1,0,0))
     from pa2.rendering.scene import camera_pose_angle
@@ -102,4 +102,4 @@ def test_real_tall_mesh_export_matches_landscape_preview_without_cad_checks(tmp_
     frames=imageio_ffmpeg.read_frames(str(result.path));meta=next(frames);rgb=np.frombuffer(next(frames),np.uint8).reshape(1080,1920,3)
     roi=rgb[114:975,30:1445];mask=roi.min(axis=2)<180;ys,xs=np.nonzero(mask)
     assert xs.max()-xs.min()>2*(ys.max()-ys.min())
-    frames.close();assert result.frame_count==2
+    frames.close();assert result.frame_count==round((settings.highlight_sec+settings.final_hold_sec)*settings.video_fps)

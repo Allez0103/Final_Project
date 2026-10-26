@@ -56,6 +56,71 @@ def gui_smoke(output):
                     except Exception:
                         report['selection_isolation']={'ok':False,'error':traceback.format_exc()}
                     report['ok']=report['ok'] and report['selection_isolation']['ok']
+                if os.environ.get('PA2_SMOKE_PRESENTATION')=='1':
+                    from .cad.grouping import GroupingService
+                    from .rendering.scene import scene_at,camera_pose_angle,projected_model_size
+                    page=window.model_page;plan=window.current_plan;timeline=page._timeline()
+                    page._show_base_step()
+                    base=scene_at(plan,0,window.settings,timeline)
+                    consistent=True
+                    for index,(step,segment) in enumerate(zip(plan.steps,timeline.segments)):
+                        frame=scene_at(plan,segment.camera_end+.001,window.settings,timeline)
+                        expected=timeline.step_cameras[index]
+                        consistent &= max(abs(a-b) for a,b in zip(frame.camera.view_up,expected.view_up))<1e-8
+                    presentation=dict(grouping_version=GroupingService.VERSION,
+                        grouping_extra_relative_tolerance=GroupingService.EXTENDED_RELATIVE_TOLERANCE,
+                        base_card=page.base_card.text(),base_card_visible=page.base_card.isVisible(),
+                        displayed_stages=page.order.count()+1,camera_rolls=plan.camera_rolls,
+                        base_active=base.active_group_id==plan.base_group_id,
+                        base_stationary=base.translations[plan.base_group_id]==(0,0,0),
+                        common_views_consistent=consistent,
+                        first_camera_transition_sec=(timeline.segments[0].camera_end-timeline.segments[0].camera_start) if plan.steps else 0,
+                        initial_to_first_angle_deg=camera_pose_angle(base.camera,timeline.step_cameras[0]) if plan.steps else 0,
+                        initial_projected_model_size=projected_model_size(base.camera,window.import_result.assembly_scene.bounds),
+                        first_view_landscape_roll_deg=timeline.first_view_landscape_roll_deg)
+                    w,h=presentation['initial_projected_model_size']
+                    report['presentation']=presentation
+                    report['ok'] &= (presentation['base_card_visible'] and presentation['base_active']
+                        and presentation['base_stationary'] and consistent and len(plan.camera_rolls)==6
+                        and presentation['first_camera_transition_sec']==0
+                        and presentation['initial_to_first_angle_deg']<1e-6 and w>=h-1e-8)
+                if os.environ.get('PA2_SMOKE_BASE_SELECTION')=='1':
+                    import copy
+                    from PySide6.QtCore import Qt
+                    from PySide6.QtTest import QTest
+                    from .cad.path_check import ConservativePathChecker
+                    from .jobs.isolated import IsolatedCadWorker
+                    page=window.model_page;page.thumbnail_timer.stop()
+                    original=copy.deepcopy(page.plan.to_dict());cases=[];calls=[]
+                    native,check=IsolatedCadWorker.call,ConservativePathChecker.check
+                    def forbidden(*_,**__):
+                        calls.append('CAD');raise AssertionError('Selection invoked CAD validation')
+                    IsolatedCadWorker.call=forbidden;ConservativePathChecker.check=forbidden
+                    try:
+                        page._show_all()
+                        for row in (0,min(1,page.order.count()-1),0):
+                            page.order.setCurrentRow(row);QApplication.processEvents()
+                            QTest.mouseClick(page.base_card,Qt.LeftButton)
+                            item=page.order.item(row);gid=item.data(Qt.UserRole)
+                            page.order.scrollToItem(item);QApplication.processEvents()
+                            QTest.mouseClick(page.order.viewport(),Qt.LeftButton,Qt.NoModifier,
+                                             page.order.visualItemRect(item).center())
+                            QApplication.processEvents()
+                            step=next(s for s in page.plan.steps if s.group_id==gid)
+                            cases.append(dict(row=row,selected={i.data(Qt.UserRole) for i in page.order.selectedItems()}=={gid},
+                                part_visible=bool(page.vtk_scene.actors[gid].GetVisibility()),
+                                base_unchecked=not page.base_card.isChecked(),fields_enabled=page.apply_button.isEnabled(),
+                                fields_match=(page.process.toPlainText()==step.process_text and page.camera.currentText()==step.camera_mode
+                                    and abs(page.distance.value()-round(step.travel_mm,page.distance.decimals()))<1e-8),
+                                pending_fields=page.has_pending_fields(),edit_display_restored=page._timeline_edit_state is None))
+                        passed=all(c['selected'] and c['part_visible'] and c['base_unchecked'] and c['fields_enabled']
+                            and c['fields_match'] and not c['pending_fields'] and c['edit_display_restored'] for c in cases)
+                        unchanged=page.plan.to_dict()==original
+                        report['base_card_selection']=dict(ok=passed and unchanged and not calls,cases=cases,
+                            plan_unchanged=unchanged,cad_calls=calls)
+                        report['ok'] &= report['base_card_selection']['ok']
+                    finally:
+                        IsolatedCadWorker.call=native;ConservativePathChecker.check=check
                 # QWidget.grab may leave a native OpenGL child black. Capture
                 # VTK's real render buffer separately instead of trusting it.
                 scene=window.model_page.vtk_scene

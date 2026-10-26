@@ -53,6 +53,9 @@ def main():
     shutil.copy2(ROOT/'packaging/PORTABLE_README_KO.txt',bundle/'사용안내.txt')
     (bundle/'docs').mkdir()
     shutil.copy2(ROOT/'docs/ACCURACY_LOG.md',bundle/'docs/ACCURACY_LOG.md')
+    release_notes=ROOT/'docs'/f'RELEASE_{args.version.upper()}.md'
+    if release_notes.is_file():
+        shutil.copy2(release_notes,bundle/'docs'/release_notes.name)
     notices=bundle/'THIRD_PARTY_NOTICES'; notices.mkdir()
     # Preserve available notices from the build environment, including optional
     # runtime dependencies. This inventory is not a legal compliance verdict.

@@ -43,7 +43,7 @@ def test_roll_buttons_pending_preview_apply_undo_redo(editor):
     seg=snapshot['timeline'].segments[0]
     frame=scene_at(snapshot['plan'],seg.camera_end+.01,p.settings,snapshot['timeline'])
     p.vtk_scene.apply(frame)
-    assert p.vtk_scene.renderer.GetActiveCamera().GetViewUp()==pytest.approx(camera_for_step(step).view_up)
+    assert p.vtk_scene.renderer.GetActiveCamera().GetViewUp()==pytest.approx(snapshot['timeline'].step_cameras[0].view_up)
     p._stop_preview();assert p.plan.to_dict()==original
     p.apply_button.click();assert p.plan.steps[0].camera_roll_deg==90 and not p.has_pending_fields()
     assert p.plan.steps[0].removal_direction==direction

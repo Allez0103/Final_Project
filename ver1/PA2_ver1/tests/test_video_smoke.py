@@ -21,7 +21,7 @@ def test_offscreen_mp4_pipeline(tmp_path):
         plan, scene, [group], tmp_path/"smoke.mp4", vehicle_name="KD1", product_name="HVJB", project_name="검증"
     )
     assert result.path.exists() and result.path.stat().st_size > 1024
-    assert result.frame_count == 2
+    assert result.frame_count == round((settings.highlight_sec+settings.final_hold_sec)*settings.video_fps)
 
 
 def test_partial_multi_body_mp4_with_review_text_and_cancel(tmp_path):

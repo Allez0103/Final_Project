@@ -74,7 +74,7 @@ def test_animation_uses_exact_positions_and_preserves_original_camera_turn_color
     from pa2.rendering.scene import scene_at
     from pa2.rendering.vtk_scene import SELECTION_RED
     scene=editor.vtk_scene;scene.highlight({'bolt'})
-    frame=scene_at(editor.plan,0,editor.settings);assert frame.highlight_alpha==0
+    frame=scene_at(editor.plan,editor._timeline().base_end,editor.settings);assert frame.highlight_alpha==0
     scene.apply(frame)
     assert scene.actors['bolt'].GetPosition()==frame.translations['bolt']
     assert scene.actors['bolt'].GetProperty().GetColor()==pytest.approx(scene.base_colors['bolt'])
@@ -122,7 +122,8 @@ def test_step_preview_tracks_card_and_repeated_stops_do_not_drift_small_part(edi
 
 def test_progress_marker_is_painted_red_and_editing_pauses_playback(editor):
     from PySide6.QtWidgets import QApplication
-    editor.order.show();QApplication.processEvents();editor._seek(0)
+    editor.order.show();QApplication.processEvents()
+    timeline=editor._timeline();editor._seek(round((timeline.base_end+.01)/timeline.duration*10000))
     image=editor.order.viewport().grab().toImage()
     assert any(image.pixelColor(x,y).red()>180 and image.pixelColor(x,y).green()<100
                for y in range(image.height()) for x in range(image.width()))

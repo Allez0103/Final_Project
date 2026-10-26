@@ -48,7 +48,7 @@ def verify_ui(output):
             segment=next(s for s in timeline.segments if s.step_index==state.step_index)
             if state.time_sec>segment.highlight_end+.15:
                 target=next(s for s in window.current_plan.steps if s.group_id==gid)
-                require(all(abs(a-b)<1e-7 for a,b in zip(state.camera.view_up,camera_for_step(target,timeline.top_view_roll_deg).view_up)),'Export roll differs')
+                require(all(abs(a-b)<1e-7 for a,b in zip(state.camera.view_up,timeline.step_cameras[target.step_index-1].view_up)),'Export roll differs')
                 path=dest.with_name(dest.stem+'-template-frame.png');image.save(path)
                 report['video_sample']=dict(frame_index=round(state.time_sec*window.settings.video_fps),
                     time_sec=state.time_sec,expected_png=str(path),camera_up=state.camera.view_up)
@@ -133,7 +133,7 @@ def verify_ui(output):
         target=next(s for s in preview['plan'].steps if s.group_id==group.id)
         frame=scene_at(preview['plan'],segment.camera_end+.01,window.settings,preview['timeline'])
         scene.apply(frame)
-        require(all(abs(a-b)<1e-7 for a,b in zip(scene.renderer.GetActiveCamera().GetViewUp(),camera_for_step(target,preview['timeline'].top_view_roll_deg).view_up)),'Preview camera roll differs')
+        require(all(abs(a-b)<1e-7 for a,b in zip(scene.renderer.GetActiveCamera().GetViewUp(),preview['timeline'].step_cameras[target.step_index-1].view_up)),'Preview camera roll differs')
         bounds=page.result.assembly_scene.bounds
         report['top_landscape']=dict(model_size_mm=bounds.size,automatic_roll_deg=preview['timeline'].top_view_roll_deg,
             user_roll_deg=expected_roll,effective_roll_deg=(expected_roll+preview['timeline'].top_view_roll_deg)%360)

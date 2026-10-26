@@ -38,7 +38,7 @@ class VideoResult:
 
 
 class VideoRenderer:
-    TEMPLATE_VERSION = "corporate-v3-compact-header"
+    TEMPLATE_VERSION = "corporate-v5-first-step-landscape"
 
     def __init__(self, settings: AppSettings, template_path: Path, logo_path: Path | None = None) -> None:
         self.settings = settings
@@ -125,8 +125,9 @@ class VideoRenderer:
                     raise TimeoutError("영상 생성 제한 시간을 초과했습니다.")
                 t = frame_index / fps
                 state = scene_at(plan, t, self.settings,timeline)
-                if not state.material_text.strip() and state.step_index:
-                    state.material_text=names.get(plan.steps[state.step_index-1].group_id,"")
+                if not state.material_text.strip():
+                    gid=state.active_group_id or (plan.steps[state.step_index-1].group_id if state.step_index else plan.base_group_id)
+                    state.material_text=names.get(gid,"")
                 if partial:
                     state.process_text = f"[부분 조립 {len(plan.steps)}/{len(plan.group_ids)-1}단계] {state.process_text}"
                 vtk_scene.apply(state,scene_width,scene_height)

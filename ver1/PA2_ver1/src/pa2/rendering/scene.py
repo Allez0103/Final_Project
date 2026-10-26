@@ -29,6 +29,10 @@ class Timeline:
     segments: list[StepSegment]
     final_end: float
     top_view_roll_deg: int = 0
+    base_end: float = 0.0
+    start_camera: CameraPose | None = None
+    step_cameras: list[CameraPose] = field(default_factory=list)
+    first_view_landscape_roll_deg: int = 0
 
     @property
     def duration(self) -> float:
@@ -70,10 +74,34 @@ def landscape_top_roll(model_bounds: Bounds | None) -> int:
 
 
 def initial_camera(top_view_roll_deg=0):
-    return CameraPose((0,0,-1),'AUTO',(-1,0,0) if top_view_roll_deg==90 else (0,1,0))
+    angle=math.radians(top_view_roll_deg)
+    return CameraPose((0,0,-1),'AUTO',(-math.sin(angle),math.cos(angle),0))
 
 
-def camera_for_step(step, top_view_roll_deg=0) -> CameraPose:
+def camera_view_key(step) -> str:
+    if step.camera_mode in MANUAL_DIRECTIONS:return step.camera_mode
+    direction=normalize(step.assembly_direction)
+    return next((mode for mode,axis in MANUAL_DIRECTIONS.items()
+                 if sum(a*b for a,b in zip(direction,axis))>1-1e-9),'AUTO')
+
+
+def shared_camera_roll(plan,step):
+    return plan.camera_rolls.get(camera_view_key(step),step.camera_roll_deg)
+
+
+def set_shared_camera_roll(plan,step,roll):
+    key=camera_view_key(step)
+    if key not in MANUAL_DIRECTIONS:
+        raise ValueError('공통 회전을 적용할 수 없는 비축방향 카메라입니다.')
+    if type(roll) is not int or roll not in (0,90,180,270):
+        raise ValueError('화면 회전은 0/90/180/270도여야 합니다.')
+    plan.camera_rolls=dict(plan.camera_rolls,**{key:roll})
+    # Keep explicit values coherent too, including callers that inspect steps.
+    for other in plan.steps:
+        if camera_view_key(other)==key:other.camera_roll_deg=roll
+
+
+def camera_for_step(step, top_view_roll_deg=0, camera_rolls=None) -> CameraPose:
     if step.camera_mode in MANUAL_DIRECTIONS:
         direction = MANUAL_DIRECTIONS[step.camera_mode]
     else:
@@ -83,7 +111,8 @@ def camera_for_step(step, top_view_roll_deg=0) -> CameraPose:
     # Apply the fixed assembly-level baseline only to a true top view,
     # including AUTO whose assembly direction is -Z. User roll is additive.
     is_top=abs(direction[0])<1e-9 and abs(direction[1])<1e-9 and direction[2]<-1+1e-9
-    angle = math.radians(step.camera_roll_deg+(top_view_roll_deg if is_top else 0))
+    roll=(camera_rolls or {}).get(camera_view_key(step),step.camera_roll_deg)
+    angle = math.radians(roll+(top_view_roll_deg if is_top else 0))
     sideways = cross(direction, up)
     up = tuple(math.cos(angle)*u - math.sin(angle)*r for u, r in zip(up, sideways))
     return CameraPose(direction, step.camera_mode, normalize(up))
@@ -91,6 +120,28 @@ def camera_for_step(step, top_view_roll_deg=0) -> CameraPose:
 
 def cross(a, b):
     return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+
+
+def projected_model_size(pose: CameraPose, bounds: Bounds) -> tuple[float, float]:
+    """Fixed assembled AABB projected onto the screen; no CAD/re-fit calls."""
+    up=pose.view_up or camera_up(pose.view_direction)
+    right=normalize(cross(pose.view_direction,up))
+    return tuple(sum(abs(v)*size for v,size in zip(axis,bounds.size))
+                 for axis in (right,up))
+
+
+def _roll_camera(pose: CameraPose, degrees: int) -> CameraPose:
+    if not degrees:return pose
+    up=pose.view_up or camera_up(pose.view_direction)
+    right=cross(pose.view_direction,up);angle=math.radians(degrees)
+    return CameraPose(pose.view_direction,pose.mode,
+        normalize(tuple(math.cos(angle)*u-math.sin(angle)*r for u,r in zip(up,right))))
+
+
+def _alignment_key(step):
+    key=camera_view_key(step)
+    # Non-axis AUTO directions must not share an arbitrary screen correction.
+    return key if key!='AUTO' else ('AUTO',*(round(v,9) for v in normalize(step.assembly_direction)))
 
 
 def camera_up(direction):
@@ -172,11 +223,22 @@ def interpolate_view(a: Vector3, b: Vector3, fraction: float, *, ease=True) -> V
 
 def build_timeline(plan: Plan, settings: AppSettings, model_bounds: Bounds | None = None) -> Timeline:
     segments: list[StepSegment] = []
-    cursor = 0.0
+    # Presentation-only first stage. The base never enters removal/path search.
+    cursor = max(0.5, settings.highlight_sec)
+    base_end=cursor
     top_roll=landscape_top_roll(model_bounds)
-    previous = initial_camera(top_roll)
-    for step in plan.steps:
-        current = camera_for_step(step,top_roll)
+    cameras=[camera_for_step(step,top_roll,plan.camera_rolls) for step in plan.steps]
+    landscape_roll=0
+    if cameras and model_bounds is not None:
+        width,height=projected_model_size(cameras[0],model_bounds)
+        if height>width+max(width,height,1.)*1e-9:landscape_roll=90
+        first_key=_alignment_key(plan.steps[0])
+        cameras=[_roll_camera(pose,landscape_roll) if _alignment_key(step)==first_key else pose
+                 for step,pose in zip(plan.steps,cameras)]
+    start_camera=(cameras[0] if cameras else
+                  initial_camera(top_roll+plan.camera_rolls.get('TOP',0)))
+    previous = start_camera
+    for step,current in zip(plan.steps,cameras):
         angle = camera_pose_angle(previous, current)
         camera_sec = 0.0 if angle < 1e-6 else max(0.3, settings.camera_180_sec * angle / 180.0)
         segment = StepSegment(
@@ -189,7 +251,9 @@ def build_timeline(plan: Plan, settings: AppSettings, model_bounds: Bounds | Non
         segments.append(segment)
         cursor = segment.move_end
         previous = current
-    return Timeline(segments=segments, final_end=cursor + settings.final_hold_sec,top_view_roll_deg=top_roll)
+    return Timeline(segments=segments, final_end=cursor + settings.final_hold_sec,
+                    top_view_roll_deg=top_roll,base_end=base_end,start_camera=start_camera,
+                    step_cameras=cameras,first_view_landscape_roll_deg=landscape_roll)
 
 
 def scene_at(plan: Plan, time_sec: float, settings: AppSettings, timeline: Timeline | None = None,
@@ -204,14 +268,20 @@ def scene_at(plan: Plan, time_sec: float, settings: AppSettings, timeline: Timel
     translations: dict[str, Vector3] = {group_id: (0, 0, 0) for group_id in stationary}
     active = None
     alpha = 0.0
-    camera = initial_camera(timeline.top_view_roll_deg)
+    camera = timeline.start_camera or initial_camera(timeline.top_view_roll_deg+plan.camera_rolls.get('TOP',0))
     process = material = caution = ""
     current_index = 0
-    for step, segment in zip(plan.steps, timeline.segments):
+    if t < timeline.base_end:
+        alpha=1.0 if int(t*4)%2==0 else 0.0
+        return SceneFrame(t,visible,translations,plan.base_group_id,alpha,camera,
+                          '기준 부품 배치','','',0,plan.base_group_id)
+    for index,(step, segment) in enumerate(zip(plan.steps, timeline.segments)):
+        step_camera=(timeline.step_cameras[index] if timeline.step_cameras else
+                     camera_for_step(step,timeline.top_view_roll_deg,plan.camera_rolls))
         if t >= segment.move_end:
             visible.add(step.group_id)
             translations[step.group_id] = (0, 0, 0)
-            camera = camera_for_step(step,timeline.top_view_roll_deg)
+            camera = step_camera
             process, material, caution = step.process_text, step.material_text, step.caution_text
             current_index = step.step_index
             continue
@@ -221,7 +291,7 @@ def scene_at(plan: Plan, time_sec: float, settings: AppSettings, timeline: Timel
         visible.add(step.group_id)
         previous_camera = camera
         previous_view = camera.view_direction
-        camera = camera_for_step(step,timeline.top_view_roll_deg)
+        camera = step_camera
         if segment.camera_end > segment.camera_start and t < segment.camera_end:
             fraction = (t-segment.camera_start)/(segment.camera_end-segment.camera_start)
             if settings.camera_mode == 'stepped_45':

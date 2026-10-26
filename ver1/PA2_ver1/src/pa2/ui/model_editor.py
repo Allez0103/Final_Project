@@ -1,13 +1,15 @@
 """PILOT-style horizontal sequence editor; manual edits never call CAD checks."""
 import copy
+from dataclasses import replace
 from PySide6.QtCore import Qt, QSize, Signal, QSignalBlocker, QItemSelectionModel, QTimer
 from PySide6.QtGui import QIcon, QImage, QPixmap, QAction, QActionGroup
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QSplitter,
     QLabel, QPushButton, QComboBox, QListWidget, QAbstractItemView, QSpinBox, QSlider,
-    QGroupBox, QScrollArea, QFrame, QMenu)
+    QGroupBox, QScrollArea, QFrame, QMenu, QToolButton)
 from pa2.domain.models import GeometryStatus, MatchingStatus
 from .group_dialog import ManualGroupDialog
-from pa2.rendering.scene import build_timeline, scene_at
+from pa2.rendering.scene import (build_timeline, scene_at, camera_view_key,
+                                 shared_camera_roll, set_shared_camera_roll)
 from .transport import configure_transport, update_play_button
 from .viewport import ModelViewport, ViewportMenuButton, configure_viewport_button, viewport_icon
 
@@ -29,6 +31,7 @@ def enhanced_model_page(legacy):
             self._part_isolation_snapshot = None
             self._visibility_restore = None
             self._timeline_focus = False
+            self._timeline_edit_state = None
             self.preview_timer=QTimer(self); self.preview_timer.timeout.connect(self._preview_tick)
             self.thumbnail_timer=QTimer(self); self.thumbnail_timer.timeout.connect(self._next_thumbnail)
             self._legacy_container = QWidget(self)
@@ -125,7 +128,8 @@ def enhanced_model_page(legacy):
                 button.clicked.connect(lambda checked=False,d=delta:self._rotate_camera(d))
                 roll_row.addWidget(button)
             roll_row.addWidget(self.camera_roll_label);form.addRow('화면 회전',roll_row)
-            self.camera_roll_label.setToolTip('탑뷰는 완성 모델의 긴 쪽을 가로로 자동 정렬합니다. 표시 각도는 자동 정렬에 더하는 사용자 회전값입니다.')
+            self.camera_roll_label.setToolTip('같은 시점을 사용하는 모든 단계에 공통 적용합니다. AUTO도 실제 6축 시점을 공유합니다.\n영상은 첫 실제 조립 단계의 시점으로 시작하며, 그 시점은 모델이 가로로 보이도록 추가 자동 보정됩니다.')
+            self.camera.currentTextChanged.connect(self._camera_mode_changed)
             self.step_preview_button=QPushButton('미리보기'); self.step_preview_button.clicked.connect(self._preview_step)
             self.step_preview_button.setToolTip('입력 중인 방향·거리·카메라로 선택 단계 재생')
             form.addRow(self.step_preview_button)
@@ -151,7 +155,14 @@ def enhanced_model_page(legacy):
             for b in (self.undo_button,self.redo_button):actions.addWidget(b)
             saved_label=QLabel('초안·편집 자동 저장');saved_label.setProperty('muted',True);actions.addWidget(saved_label)
             confirm=QPushButton('순서 확정'); confirm.setProperty('primary',True); confirm.clicked.connect(lambda:self.confirm_requested.emit(self.plan) if self.plan else None); actions.addWidget(confirm)
-            steps_layout.addWidget(self.order); steps_layout.addLayout(actions)
+            cards=QHBoxLayout()
+            self.base_card=QToolButton();self.base_card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            self.base_card.setObjectName('baseSequenceCard');self.base_card.setCheckable(True)
+            self.base_card.setFixedSize(170,148);self.base_card.setIconSize(QSize(105,62))
+            self.base_card.setToolTip('첫 단계 · 기준 부품 배치 · 고정 위치, 이동/순서 변경 없음')
+            self.base_card.clicked.connect(self._show_base_step);self.base_card.hide()
+            cards.addWidget(self.base_card);cards.addWidget(self.order,1)
+            steps_layout.addLayout(cards); steps_layout.addLayout(actions)
             move=QHBoxLayout()
             for text,fn in [('전체 선택',self.order.selectAll),('현재 부품만',self._single),('앞으로',lambda:self._move(-1)),('뒤로',lambda:self._move(1))]:
                 b=QPushButton(text); b.clicked.connect(fn); move.addWidget(b)
@@ -175,7 +186,7 @@ def enhanced_model_page(legacy):
             if not self._syncing:self.edit_state_changed.emit()
 
         def _pause_for_card_drag(self):
-            self._stop_preview();self.play_timer.stop();self._timeline_focus=False;self._sync_playback()
+            self._stop_preview();self.play_timer.stop();self._leave_timeline();self._sync_playback()
 
         def _manual_ids(self):
             structure=getattr(self.result,'grouping_structure',None) if self.result else None
@@ -210,14 +221,16 @@ def enhanced_model_page(legacy):
             if not step:return False
             return (self.direction.currentText()!=self._direction_text(step.removal_direction)
                 or round(self.distance.value(),self.distance.decimals())!=round(step.travel_mm,self.distance.decimals())
-                or self.camera.currentText()!=step.camera_mode or self._camera_roll_deg!=step.camera_roll_deg
+                or self.camera.currentText()!=step.camera_mode or self._camera_roll_deg!=shared_camera_roll(self.plan,step)
                 or self.process.toPlainText()!=step.process_text
                 or self.material.toPlainText()!=step.material_text or self.caution.toPlainText()!=step.caution_text)
 
         def set_result(self,result,settings):
+            self.base_card.hide()
             self._timeline_focus=False;self.order.set_active_step(None)
             self._clear_visibility_toggle(restore=False)
             self._stop_preview()
+            self._leave_timeline()
             self.play_timer.stop(); self.play_time=0.0
             self._part_isolation_snapshot=None
             self.thumbnail_timer.stop()
@@ -245,6 +258,7 @@ def enhanced_model_page(legacy):
         def set_plan(self,plan,message):
             self._timeline_focus=False;self.order.set_active_step(None)
             self._stop_preview()
+            self._leave_timeline()
             self._clear_visibility_toggle()
             self.play_timer.stop(); self.play_time=0.0
             self._clear_part_isolation()
@@ -253,11 +267,13 @@ def enhanced_model_page(legacy):
             try:
                 super().set_plan(plan,message)
                 names={g.id:g.display_name for g in self.result.snapshot.groups}
+                self.base_card.setText(f'01  {names[plan.base_group_id]}\n기준 부품 · 고정')
+                self.base_card.setIcon(self._icon(plan.base_group_id));self.base_card.show()
                 for i,step in enumerate(plan.steps):
                     item=self.order.item(i)
                     if step.group_id in self._icons:item.setIcon(self._icons[step.group_id])
                     marker=' · 경로 확인 필요' if step.geometry_status==GeometryStatus.DRAFT_UNRESOLVED else ' · 예외' if step.geometry_status==GeometryStatus.USER_COLLISION_EXCEPTION else ''
-                    item.setText(f'{i+1:02d}  {names[step.group_id]}\n분해 {self._direction_text(step.removal_direction)} · {step.travel_mm:.1f} mm{marker}')
+                    item.setText(f'{i+2:02d}  {names[step.group_id]}\n분해 {self._direction_text(step.removal_direction)} · {step.travel_mm:.1f} mm{marker}')
                     item.setFlags(item.flags()|Qt.ItemIsUserCheckable); item.setCheckState(Qt.Unchecked)
                 if plan.steps:self.order.setCurrentRow(0)
             finally:self._syncing=False
@@ -314,7 +330,7 @@ def enhanced_model_page(legacy):
             self._sync_visibility_button()
 
         def _toggle_part_visibility(self):
-            self._stop_preview();self.play_timer.stop();self._sync_playback()
+            self._stop_preview();self.play_timer.stop();self._leave_timeline();self._sync_playback()
             if self._visibility_restore is not None:
                 self._clear_visibility_toggle()
             else:
@@ -329,18 +345,30 @@ def enhanced_model_page(legacy):
             self.vtk_scene.highlight(self._visibility_selected())
 
         def _hide(self):
-            self._stop_preview();self._clear_visibility_toggle();self._clear_part_isolation();super()._hide()
+            self._stop_preview();self._leave_timeline();self._clear_visibility_toggle();self._clear_part_isolation();super()._hide()
 
         def _solo(self):
-            self._stop_preview();self._clear_visibility_toggle();self._clear_part_isolation();super()._solo()
+            self._stop_preview();self._leave_timeline();self._clear_visibility_toggle();self._clear_part_isolation();super()._solo()
 
         def _show_all(self):
-            self._stop_preview();self._clear_visibility_toggle(restore=False);self._clear_part_isolation(restore=False);super()._show_all()
+            self._stop_preview();self._leave_timeline();self._clear_visibility_toggle(restore=False);self._clear_part_isolation(restore=False);super()._show_all()
+
+        def _enter_timeline(self):
+            if self._timeline_edit_state is None:
+                # Remove edit-only pop/highlight before storing original visibility
+                # and positions. Animation may hide/reposition actors temporarily.
+                self.vtk_scene.clear_selection()
+                self._timeline_edit_state=self.vtk_scene.capture_selection_state()
+
+        def _leave_timeline(self):
+            previous=self._timeline_edit_state
+            self._timeline_edit_state=None;self._timeline_focus=False
+            if previous is not None:self.vtk_scene.restore_selection_state(previous)
 
         def _order_selection(self,sync_parts=True):
             if self._syncing:return
             self._stop_preview()
-            self.play_timer.stop();self._timeline_focus=False;self.order.set_active_step(None)
+            self.play_timer.stop();self._leave_timeline();self.order.set_active_step(None)
             # Sequence-card multi-selection is for moving steps, not grouping.
             self._clear_part_isolation()
             self._syncing=True
@@ -359,6 +387,13 @@ def enhanced_model_page(legacy):
                 if rows:self.position.setValue(min(rows)+1)
                 for w in (self.direction,self.distance,self.camera,self.camera_roll_left,self.camera_roll_right,self.process,self.material,self.caution,self.apply_button,self.step_preview_button):w.setEnabled(len(selected)==1)
             finally:self._syncing=False
+            selected_items=self.order.selectedItems()
+            if len(selected_items)==1:
+                # clearSelection() keeps Qt's current item. Re-selecting that
+                # same card does not emit currentItemChanged: bind explicitly.
+                current=selected_items[0]
+                with QSignalBlocker(self.order):self.order.setCurrentItem(current,QItemSelectionModel.NoUpdate)
+                self._edit_step(current,None)
             self._update_group_buttons()
             self._sync_visibility_button()
             self._sync_playback()
@@ -371,7 +406,7 @@ def enhanced_model_page(legacy):
         def _select_group(self):
             if self._syncing:return
             self._timeline_focus=False
-            self._stop_preview();self.play_timer.stop();self._sync_playback()
+            self._stop_preview();self.play_timer.stop();self._leave_timeline();self._sync_playback()
             self._syncing=True
             ids={i.data(Qt.UserRole) for i in self.parts.selectedItems()}
             try:
@@ -384,7 +419,7 @@ def enhanced_model_page(legacy):
             if current:self._order_selection(sync_parts=False); self._edit_step(current,None)
             self._isolate_selected_parts(ids)
             self.selection_label.setText(f'{len(ids)}개 선택')
-            if len(ids)!=1:
+            if len(ids)!=1 or not current:
                 for widget in (self.direction,self.distance,self.camera,self.camera_roll_left,self.camera_roll_right,self.process,self.material,self.caution,self.apply_button,self.step_preview_button):widget.setEnabled(False)
             self._update_group_buttons()
             self._sync_visibility_button()
@@ -409,13 +444,22 @@ def enhanced_model_page(legacy):
                 super()._edit_step(current,previous)
                 step=next(s for s in self.plan.steps if s.group_id==current.data(Qt.UserRole))
                 self.direction.setCurrentText(self._direction_text(step.removal_direction))
-                self._camera_roll_deg=step.camera_roll_deg
+                self._camera_roll_deg=shared_camera_roll(self.plan,step)
                 self.camera_roll_label.setText(f'{self._camera_roll_deg}°')
             finally:self._syncing=False
             self.edit_state_changed.emit()
 
         def _record(self):
             if self.plan:self._undo.append(copy.deepcopy(self.plan)); self._undo=self._undo[-30:]; self._redo=[]
+
+        def _camera_mode_changed(self,*_):
+            if self._syncing or not self.plan or not self.order.currentItem():return
+            gid=self.order.currentItem().data(Qt.UserRole)
+            step=next(s for s in self.plan.steps if s.group_id==gid)
+            key=camera_view_key(replace(step,camera_mode=self.camera.currentText()))
+            legacy=next((s.camera_roll_deg for s in self.plan.steps if camera_view_key(s)==key),0)
+            self._camera_roll_deg=self.plan.camera_rolls.get(key,legacy)
+            self.camera_roll_label.setText(f'{self._camera_roll_deg}°')
 
         def _rotate_camera(self,delta):
             if not self.plan or len(self.order.selectedItems())!=1:return
@@ -467,7 +511,7 @@ def enhanced_model_page(legacy):
             if len(self.order.selectedItems())!=1:return
             self._record(); super()._apply_step()
             gid=self.order.currentItem().data(Qt.UserRole)
-            next(s for s in self.plan.steps if s.group_id==gid).camera_roll_deg=self._camera_roll_deg
+            set_shared_camera_roll(self.plan,next(s for s in self.plan.steps if s.group_id==gid),self._camera_roll_deg)
             self._renumber(); self.status.setText('수동 수정값 적용 · 간섭 재검사 없음')
             self._save()
             self.edit_state_changed.emit()
@@ -491,7 +535,7 @@ def enhanced_model_page(legacy):
             step.removal_direction=axes.get(self.direction.currentText(),step.removal_direction)
             step.assembly_direction=tuple(-v for v in step.removal_direction)
             step.travel_mm=self.distance.value(); step.camera_mode=self.camera.currentText()
-            step.camera_roll_deg=self._camera_roll_deg
+            set_shared_camera_roll(preview,step,self._camera_roll_deg)
             step.process_text=self.process.toPlainText(); step.material_text=self.material.toPlainText(); step.caution_text=self.caution.toPlainText()
             import vtk
             camera=vtk.vtkCamera(); camera.DeepCopy(self.vtk_scene.renderer.GetActiveCamera())
@@ -551,6 +595,7 @@ def enhanced_model_page(legacy):
         def _view(self,name):self.vtk_scene.set_view(name)
 
         def preview(self):
+            self._stop_preview();self._leave_timeline()
             self._clear_visibility_toggle()
             self._clear_part_isolation()
             super().preview()
@@ -574,9 +619,16 @@ def enhanced_model_page(legacy):
             elif ready and self._timeline_focus:
                 frame=scene_at(self.plan,self.play_time,self.settings,self._timeline())
             self.order.set_active_step(frame.active_group_id if frame else None)
+            self.base_card.setChecked(bool(frame and frame.active_group_id==self.plan.base_group_id))
             if frame and frame.active_group_id:
                 state='미리보기' if self._step_preview else '재생 중' if self.play_timer.isActive() else '일시정지'
-                self.playback_state.setText(f'{frame.step_index:02d}단계 · {state}')
+                self.playback_state.setText(f'{frame.step_index+1:02d}단계 · {state}')
+
+        def _show_base_step(self,*_):
+            if not self.plan:return
+            self.play_timer.stop();self._stop_preview();self.order.clearSelection()
+            self._seek(0)
+            self.status.setText('01단계 · 기준 부품 배치 · 이동 없음')
 
         def _toggle_play(self):
             if not self.plan:return
@@ -586,10 +638,12 @@ def enhanced_model_page(legacy):
             self._commit_order()
             if self.play_timer.isActive():self.play_timer.stop(); self._sync_playback(); return
             if self.play_time>=self._timeline().duration:self.play_time=0
+            self._enter_timeline()
             self._timeline_focus=True
             self.play_timer.start(33); self._sync_playback()
 
         def _play_tick(self):
+            self._enter_timeline()
             self._timeline_focus=True
             super()._play_tick()
             self._sync_playback()
@@ -599,6 +653,7 @@ def enhanced_model_page(legacy):
             self._clear_visibility_toggle()
             self._stop_preview()
             self._clear_part_isolation()
+            self._enter_timeline()
             timeline=self._timeline()
             self.play_time=timeline.duration*value/10000
             self._timeline_focus=True
@@ -614,7 +669,12 @@ def enhanced_model_page(legacy):
         def _neighbor(self,delta):
             if not self.plan or not self.order.count():return
             self.play_timer.stop(); self._stop_preview()
-            row=max(0,min(self.order.count()-1,self.order.currentRow()+delta))
+            if delta<0 and self.order.currentRow()<=0:
+                self._show_base_step();return
+            if delta>0 and self.play_time<self._timeline().base_end:
+                row=0
+            else:
+                row=max(0,min(self.order.count()-1,self.order.currentRow()+delta))
             self.order.setCurrentRow(row)
             timeline=self._timeline()
             self._seek(round(timeline.segments[row].camera_start/max(timeline.duration,.001)*10000))

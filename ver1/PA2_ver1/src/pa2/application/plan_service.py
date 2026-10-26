@@ -10,6 +10,7 @@ from pa2.domain.models import GeometryStatus, Plan
 from pa2.domain.models import PlanningStatus, PlanStep
 from pa2.storage.database import ConfirmationRecord, Database, PlanRecord, PlanStepRecord, Project
 from pa2.storage.database import PlanningPresetRecord, GenerationRecord, ConfirmationAnalysis
+from pa2.storage.database import PlanPresentationRecord
 
 
 class PlanService:
@@ -55,6 +56,11 @@ class PlanService:
                 existing.revision += 1
                 existing.user_modified = plan.user_modified
                 existing.status = plan.status.value
+            presentation=session.get(PlanPresentationRecord,plan.id)
+            if presentation is None:
+                presentation=PlanPresentationRecord(plan_id=plan.id)
+                session.add(presentation)
+            presentation.camera_rolls_json=copy.deepcopy(plan.camera_rolls)
             for old in list(session.query(PlanStepRecord).filter_by(plan_id=plan.id)):
                 session.delete(old)
             for step in plan.steps:
@@ -145,6 +151,8 @@ class PlanService:
                 'camera_mode','camera_roll_deg','process_text','material_text','caution_text','final_transform')
         raw={'base':plan.base_group_id,'groups':sorted(plan.group_ids),'snapshot':plan.input_snapshot_id,
              'steps':[{field:getattr(step,field) for field in fields} for step in plan.steps]}
+        # Keep old confirmation signatures stable when no common settings exist.
+        if plan.camera_rolls:raw['camera_rolls']=plan.camera_rolls
         # SQLite Float columns restore 10 as 10.0; that must not invalidate an
         # otherwise unchanged confirmation after a project is reopened.
         for step in raw['steps']:
@@ -212,12 +220,14 @@ class PlanService:
                 geometry_status=GeometryStatus(row.geometry_status), source_run_id=row.source_run_id,
                 final_transform=tuple(row.final_transform_json),
             ) for row in rows]
+            presentation=session.get(PlanPresentationRecord,record.id)
             return Plan(
                 id=record.id, project_id=record.project_id, revision=record.revision,
                 base_group_id=record.base_group_id, group_ids=list(record.group_ids_json), steps=steps,
                 status=PlanningStatus(record.status), source_algorithm=record.source_algorithm,
                 user_modified=record.user_modified, input_snapshot_id=record.input_snapshot_id,
                 settings_version=record.settings_version,
+                camera_rolls=copy.deepcopy(presentation.camera_rolls_json) if presentation else {},
             )
 
     def load_confirmation(self, confirmation_id: str) -> Plan:

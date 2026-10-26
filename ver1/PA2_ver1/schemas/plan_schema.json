@@ -7,6 +7,12 @@
     "id": {"type": "string"},
     "project_id": {"type": "string"},
     "base_group_id": {"type": "string"},
+    "camera_rolls": {
+      "type": "object",
+      "propertyNames": {"enum": ["TOP", "BOTTOM", "FRONT", "BACK", "LEFT", "RIGHT"]},
+      "additionalProperties": {"type": "integer", "enum": [0, 90, 180, 270]},
+      "default": {}
+    },
     "group_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "steps": {"type": "array", "items": {"$ref": "#/$defs/step"}},
     "status": {"enum": ["COMPLETE", "REVIEW_REQUIRED", "PARTIAL", "NO_SOLUTION_WITHIN_BUDGET", "CANCELLED", "FAILED"]}

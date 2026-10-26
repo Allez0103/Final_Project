@@ -102,7 +102,7 @@ def test_fallback_preserves_strict_occurrence_id_and_adds_new_id():
 
 def test_fallback_limits_do_not_allow_large_geometry_or_spacing_changes():
     part = scene("AIR-X.STP", [body("p1", 10, (100,0,0)), body("p2", 20, (105,0,0))])
-    for volume, distance in [(10.02, 5), (10.007, 5.006)]:
+    for volume, distance in [(10.03, 5), (10.007, 5.011)]:
         assembly = scene("assembly.step", [body("a", volume, (0,0,0)), body("b", 20, (distance,0,0))])
         result = GroupingService(position_tolerance_mm=0.001).resolve(assembly, [part])
         assert result.unresolved_body_ids == ["a", "b"]

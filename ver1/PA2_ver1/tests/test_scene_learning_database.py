@@ -12,7 +12,9 @@ from pa2.storage.layout import DataLayout
 def test_scene_timeline_starts_disassembled_and_finishes_assembled():
     plan = Plan("p","project",1,"base",["base","part"],[PlanStep("part",1,(1,0,0),(-1,0,0),10)],PlanningStatus.COMPLETE)
     settings = AppSettings()
-    start = scene_at(plan, 0, settings)
+    intro=scene_at(plan,0,settings)
+    assert intro.visible_group_ids=={'base'} and intro.active_group_id=='base'
+    start = scene_at(plan, build_timeline(plan,settings).base_end, settings)
     end = scene_at(plan, build_timeline(plan, settings).duration, settings)
     assert start.visible_group_ids == {"base","part"}
     assert start.translations["part"] == (10,0,0)
@@ -32,12 +34,14 @@ def test_partial_review_preview_keeps_unplanned_parts_assembled():
 
 def test_camera_half_turn_is_continuous_and_keeps_part_stationary():
     import math
-    plan=Plan('p','project',1,'base',['base','part'],
-              [PlanStep('part',1,(0,0,-1),(0,0,1),10)],PlanningStatus.COMPLETE)
+    plan=Plan('p','project',1,'base',['base','first','part'],
+              [PlanStep('first',1,(0,0,1),(0,0,-1),10),
+               PlanStep('part',2,(0,0,-1),(0,0,1),10)],PlanningStatus.COMPLETE)
     settings=AppSettings()
-    start=scene_at(plan,0,settings)
-    middle=scene_at(plan,settings.camera_180_sec/2,settings)
-    end=scene_at(plan,settings.camera_180_sec,settings)
+    offset=build_timeline(plan,settings).segments[1].camera_start
+    start=scene_at(plan,offset,settings)
+    middle=scene_at(plan,offset+settings.camera_180_sec/2,settings)
+    end=scene_at(plan,offset+settings.camera_180_sec,settings)
     assert start.camera.view_direction==(0,0,-1)
     assert end.camera.view_direction==(0,0,1)
     assert abs(middle.camera.view_direction[2]) < 1e-9

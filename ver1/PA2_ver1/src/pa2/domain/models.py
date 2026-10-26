@@ -277,8 +277,13 @@ class Plan:
     user_modified: bool = False
     input_snapshot_id: str = ""
     settings_version: str = "settings-v1"
+    camera_rolls: dict[str, int] = field(default_factory=dict)
 
     def validate(self, *, allow_partial: bool = False) -> None:
+        if any(mode not in {"TOP", "BOTTOM", "FRONT", "BACK", "LEFT", "RIGHT"}
+               or type(roll) is not int or roll not in (0, 90, 180, 270)
+               for mode, roll in self.camera_rolls.items()):
+            raise ValueError("시점별 공통 회전은 0/90/180/270도여야 합니다.")
         expected = set(self.group_ids) - {self.base_group_id}
         actual = [step.group_id for step in self.steps]
         if len(actual) != len(set(actual)):
