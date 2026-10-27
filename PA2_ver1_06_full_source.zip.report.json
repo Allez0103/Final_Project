@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "archive": "PA2_ver1_06_full_source.zip",
+  "bytes": 4586550,
+  "sha256": "a61c18e48f7519a32d3a9fb406b2e617c45cc838f02b9d774d1bce6a121015ee",
+  "files": 2034,
+  "python_files": 221,
+  "application_modules": 97,
+  "asset_files": 1716,
+  "crc_ok": true,
+  "all_entry_hashes_match": true,
+  "all_original_inputs_unchanged": true,
+  "protected_runtime_files_unchanged": 4,
+  "manifest": "SOURCE_MANIFEST.json"
+}
