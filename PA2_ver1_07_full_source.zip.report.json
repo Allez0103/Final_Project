@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "release": "ver1_07",
+  "archive": "PA2_ver1_07_full_source.zip",
+  "bytes": 8292068,
+  "sha256": "f2c8dcf40942c71ea24173b0f8d6cfdf02f71b364f66a92511c83143837ec770",
+  "files": 369,
+  "application_modules": 107,
+  "crc_ok": true,
+  "entry_hashes_ok": true,
+  "secret_findings": 0,
+  "data_excluded": true,
+  "bundled_models_included": false,
+  "paired_runtime": {
+    "executable_sha256": "fad9ac6446988b881f236c6899c41a7445ee38a0a6ed6b55d9211b2cd317ae05",
+    "distribution_sha256": "2ef941734235147bf970a45d61cd6aaf6df0d3d43dea655e001354a91b419cff"
+  },
+  "validation": {
+    "source_tests_passed": 556,
+    "source_tests_skipped": 2,
+    "explicitly_excluded_bundle_tests": [
+      "test_bootstrap_is_once_only_common_models_and_rollback",
+      "test_fixed_eval_never_in_fit_and_ties_preserved",
+      "test_automatic_promotion_gate_and_exact_pair_rollback"
+    ],
+    "runtime_ui_checks": 20,
+    "runtime_seed_models_included": true,
+    "github_source_seed_models_included": false
+  }
+}
