@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "release": "ver1_09",
+  "archive": "PA2_ver1_09_full_source.zip",
+  "bytes": 8387177,
+  "sha256": "e3a5c0b8afcded2a9838fb28123a58311e26b79066194116e4d1b808340ce656",
+  "files": 385,
+  "application_modules": 112,
+  "crc_ok": true,
+  "entry_hashes_ok": true,
+  "secret_findings": 0,
+  "data_excluded": true,
+  "bundled_models_included": false,
+  "paired_runtime": {
+    "executable_sha256": "9b09af547b4c1465319b55ef9fcc923ac83a9be8c563665d129e710cc668af72",
+    "distribution_sha256": "206bad2c95e99397f41d7771447de05f8e0ed2c006e96cc81ee85a0890090bd9"
+  },
+  "validation": {
+    "source_tests_passed": 603,
+    "source_tests_skipped": 2,
+    "excluded_bundle_tests": [
+      "test_bootstrap_is_once_only_common_models_and_rollback",
+      "test_fixed_eval_never_in_fit_and_ties_preserved",
+      "test_automatic_promotion_gate_and_exact_pair_rollback"
+    ],
+    "runtime_gui_checks": 94,
+    "runtime_color_checks": 19,
+    "runtime_manual_view_checks": 2
+  }
+}
